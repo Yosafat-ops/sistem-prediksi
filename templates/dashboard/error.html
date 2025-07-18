@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Error</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body>
+    <div class="error-container">
+        <div class="error-content">
+            <h1><i class="fas fa-exclamation-triangle"></i> Terjadi Kesalahan</h1>
+            <div class="error-message">
+                {{ error }}
+            </div>
+            <a href="{{ url_for('dashboard') }}" class="error-button">
+                <i class="fas fa-arrow-left"></i> Kembali ke Dashboard
+            </a>
+        </div>
+    </div>
+</body>
+</html>

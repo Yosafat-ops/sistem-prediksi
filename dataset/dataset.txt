@@ -1,0 +1,33 @@
+!pip install roboflow
+
+from roboflow import Roboflow
+rf = Roboflow(api_key="lENnMiHpbIrtd6GiAVRN")
+project = rf.workspace("yosafatyusakjunior").project("citra-deteksi-makanan")
+version = project.version(8)
+dataset = version.download("yolov8")
+                
+                
+                
+      
+
+terminal
+
+curl -L "https://app.roboflow.com/ds/yDgntsiWOI?key=rHCauhU9Fc" > roboflow.zip; unzip roboflow.zip; rm roboflow.zip
+
+raw url
+https://app.roboflow.com/ds/yDgntsiWOI?key=rHCauhU9Fc
+
+batasnyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+
+!pip install roboflow
+
+from roboflow import Roboflow
+rf = Roboflow(api_key="lENnMiHpbIrtd6GiAVRN")
+project = rf.workspace("yosafatyusakjunior").project("citra-deteksi-makanan")
+version = project.version(1)
+dataset = version.download("yolov5-obb")
+
+
+
+curl -L "https://app.roboflow.com/ds/EyJDyczfUu?key=Ya4jzAA5sH" > roboflow.zip; unzip roboflow.zip; rm roboflow.zip
+                         

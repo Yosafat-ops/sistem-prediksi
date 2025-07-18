@@ -1,0 +1,153 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}Analisis Kualitas Makanan{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1><i class="fas fa-chart-line"></i> Analisis Kualitas Makanan</h1>
+    <p class="subheader">Statistik dan tren kualitas makanan Indian</p>
+</div>
+
+<div class="analytics-container">
+    <!-- Card Statistik Utama -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-utensils"></i>
+            </div>
+            <div class="stat-info">
+                <h3>Total Analisis</h3>
+                <p class="stat-value">{{ total_analisis }}</p>
+            </div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-star"></i>
+            </div>
+            <div class="stat-info">
+                <h3>Rata-rata Kualitas</h3>
+                <p class="stat-value">{{ "%.1f"|format(avg_quality) }}/10</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Grafik Tren Kualitas -->
+    <div class="chart-card">
+        <h2><i class="fas fa-chart-line"></i> Tren Kualitas 7 Hari Terakhir</h2>
+        <canvas id="qualityTrendChart"></canvas>
+    </div>
+
+    <!-- Distribusi Kualitas -->
+    <div class="chart-card">
+        <h2><i class="fas fa-chart-pie"></i> Distribusi Skor Kualitas</h2>
+        <canvas id="qualityDistributionChart"></canvas>
+    </div>
+
+    <!-- Tabel Data -->
+    <div class="data-table">
+        <h2><i class="fas fa-table"></i> Data Historis</h2>
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Tanggal</th>
+                        <th>Makanan</th>
+                        <th>Kualitas</th>
+                        <th>Confidence</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in recent_data %}
+                    <tr>
+                        <td>{{ item.detection_time.strftime('%d/%m/%Y') }}</td>
+                        <td>{{ item.food_name }}</td>
+                        <td>{{ "%.1f"|format(item.quality_score) }}</td>
+                        <td>{{ "%.1f"|format(item.confidence*100) }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Grafik Tren Kualitas
+    const trendCtx = document.getElementById('qualityTrendChart').getContext('2d');
+    new Chart(trendCtx, {
+        type: 'line',
+        data: {
+            labels: {{ trend_dates|safe }},
+            datasets: [{
+                label: 'Rata-rata Kualitas Harian',
+                data: {{ trend_values|safe }},
+                borderColor: 'rgba(75, 192, 192, 1)',
+                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                borderWidth: 2,
+                tension: 0.4,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    min: 0,
+                    max: 10,
+                    title: {
+                        display: true,
+                        text: 'Skor Kualitas'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Tanggal'
+                    }
+                }
+            }
+        }
+    });
+
+    // Grafik Distribusi Kualitas
+    const distCtx = document.getElementById('qualityDistributionChart').getContext('2d');
+    new Chart(distCtx, {
+        type: 'bar',
+        data: {
+            labels: {{ dist_labels|safe }},
+            datasets: [{
+                label: 'Jumlah Analisis',
+                data: {{ dist_values|safe }},
+                backgroundColor: 'rgba(54, 162, 235, 0.7)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Jumlah Analisis'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Skor Kualitas'
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}Beranda Dashboard{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1>Dashboard Quality Control</h1>
+    <p class="last-update">Terakhir diperbarui: {{ now.strftime('%d %B %Y %H:%M') }}</p>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <h3>Total Analisis</h3>
+        <p class="stat-value">{{ total_analisis }}</p>
+    </div>
+    
+    <div class="stat-card">
+        <h3>Rata-rata Kualitas</h3>
+        <p class="stat-value">7.8/10</p>
+    </div>
+</div>
+
+<div class="chart-container">
+    <canvas id="weeklyChart"></canvas>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const ctx = document.getElementById('weeklyChart');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'],
+            datasets: [{
+                label: 'Analisis Harian',
+                data: [12, 19, 3, 5, 2, 3, 8],
+                borderWidth: 1
+            }]
+        },
+        options: {
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+</script>
+{% endblock %}

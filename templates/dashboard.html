@@ -1,0 +1,172 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}Beranda{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1><i class="fas fa-chart-line"></i> Dashboard Quality Control</h1>
+    <p class="subheader">Analisis Kualitas Makanan PT. Indian Kitchen Bali</p>
+</div>
+
+{% if error %}
+    <div class="error-message">
+        <h2><i class="fas fa-exclamation-triangle"></i> Terjadi Kesalahan</h2>
+        <p>{{ error }}</p>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-primary">
+            <i class="fas fa-sync-alt"></i> Coba Muat Ulang
+        </a>
+    </div>
+{% else %}
+    <div class="stats-grid">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon bg-primary">
+                    <i class="fas fa-clipboard-list"></i>
+                </div>
+                <div class="stat-info">
+                    <h3>Total Analisis</h3>
+                    <p>{{ total_analyses if total_analyses is not none else '0' }}</p>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon bg-success">
+                    <i class="fas fa-star"></i>
+                </div>
+                <div class="stat-info">
+                    <h3>Rata-rata Kualitas</h3>
+                    <p>{{ "%.1f"|format(avg_quality) if avg_quality is not none else '0.0' }}/5</p>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon bg-warning">
+                    <i class="fas fa-utensils"></i>
+                </div>
+                <div class="stat-info">
+                    <h3>Makanan Terpopuler</h3>
+                    <p>{{ top_food[0] if top_food and top_food[0] else '-' }}</p>
+                    <small>{{ top_food[1] if top_food and top_food[1] else '0' }} analisis</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chart-container" style="max-width: 800px; margin: 0 auto;">
+        <div class="chart-card" style="height: 400px;">
+            <h2><i class="fas fa-chart-bar"></i> Trend Kualitas 7 Hari Terakhir</h2>
+            {% if dates and avg_qualities %}
+                <div style="height: 350px;">
+                    <canvas id="qualityTrendChart" height="350"></canvas>
+                </div>
+            {% else %}
+                <div class="no-data-message">
+                    <i class="fas fa-chart-bar"></i>
+                    <p>Tidak ada data trend kualitas yang tersedia</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    <div class="quick-actions">
+        <h2><i class="fas fa-bolt"></i> Quick Actions</h2>
+        <div class="actions-grid">
+            <a href="{{ url_for('analyze') }}" class="action-card">
+                <i class="fas fa-search"></i>
+                <span>Analisis Baru</span>
+            </a>
+            <a href="{{ url_for('history') }}" class="action-card">
+                <i class="fas fa-history"></i>
+                <span>Lihat History</span>
+            </a>
+            <a href="{{ url_for('about') }}" class="action-card">
+                <i class="fas fa-building"></i>
+                <span>Profil Perusahaan</span>
+            </a>
+        </div>
+    </div>
+   
+    
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if not error and dates and avg_qualities %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const trendCtx = document.getElementById('qualityTrendChart');
+        if (trendCtx) {
+            try {
+                new Chart(trendCtx, {
+                    type: 'line',
+                    data: {
+                        labels: {{ dates|tojson|safe }},
+                        datasets: [{
+                            label: 'Rata-rata Kualitas Harian',
+                            data: {{ avg_qualities|tojson|safe }},
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false, 
+                        plugins: {
+                            legend: {
+                                labels: {
+                                    boxWidth: 12 
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: false,
+                                min: 0,
+                                max: 5,
+                                ticks: {
+                                    stepSize: 1
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Skor Kualitas',
+                                    font: {
+                                        size: 12
+                                    }
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Tanggal',
+                                    font: {
+                                        size: 12
+                                    }
+                                },
+                                ticks: {
+                                    maxRotation: 45 // Miringkan label tanggal jika perlu
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('Error rendering chart:', error);
+                const chartContainer = trendCtx.closest('.chart-card');
+                if (chartContainer) {
+                    chartContainer.innerHTML += `
+                        <div class="chart-error">
+                            <i class="fas fa-exclamation-circle"></i>
+                            <p>Gagal memuat grafik</p>
+                        </div>
+                    `;
+                }
+            }
+        }
+    });
+</script>
+{% endif %}
+{% endblock %}
