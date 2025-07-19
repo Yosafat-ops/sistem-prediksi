@@ -12,7 +12,6 @@ from flask import request, flash, redirect, url_for
 
 
 app = Flask(__name__)
-app.run(host="0.0.0.0", port=7860)
 
 # Konfigurasi
 app.config.update({
