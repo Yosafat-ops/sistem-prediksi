@@ -2,19 +2,33 @@
   "version": 2,
   "builds": [
     {
-      "src": "app.py",
+      "src": "*.py",
       "use": "@vercel/python",
       "config": {
         "runtime": "python@3.9",
-        "installCommand": "pip install -r requirements.txt --progress-bar off",
-        "maxLambdaSize": "15mb"
+        "maxLambdaSize": "50mb",  // Diperbesar untuk model YOLO
+        "includeFiles": [
+          "models/**",
+          "static/**",
+          "templates/**",
+          "utils/**"
+        ]
       }
+    },
+    {
+      "src": "static/**",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
     {
+      "src": "/static/(.*)",
+      "dest": "/static/$1"
+    },
+    {
       "src": "/(.*)",
-      "dest": "app.py"
+      "dest": "app.py",
+      "methods": ["GET", "POST"]
     }
   ]
 }
