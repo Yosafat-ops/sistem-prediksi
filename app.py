@@ -5,6 +5,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import os
 from werkzeug.utils import secure_filename
+import psycopg2
 from jinja2 import TemplateNotFound
 from utils.food_detector import FoodDetector
 from utils.quality_predictor import QualityPredictor
@@ -13,12 +14,12 @@ from flask import request, flash, redirect, url_for
 
 app = Flask(__name__)
 
-# Konfigurasi
+# Konfigurasi untuk Vercel
 app.config.update({
-    'UPLOAD_FOLDER': 'static/images/',
+    'UPLOAD_FOLDER': '/tmp/images',  # Gunakan temporary storage
     'ALLOWED_EXTENSIONS': {'png', 'jpg', 'jpeg'},
     'MAX_CONTENT_LENGTH': 16 * 1024 * 1024,
-    'SQLALCHEMY_DATABASE_URI': 'sqlite:///results.db',
+    'SQLALCHEMY_DATABASE_URI': os.environ.get('DATABASE_URL'),  # Dari env var
     'SQLALCHEMY_TRACK_MODIFICATIONS': False
 })
 
@@ -34,10 +35,15 @@ class DetectionResult(db.Model):
     confidence = db.Column(db.Float, nullable=False)
     quality_score = db.Column(db.Float, nullable=False)
     bbox_coordinates = db.Column(db.String(100), nullable=False)
-
-# Inisialisasi Model
-detector = FoodDetector("models/best.pt")
-quality_predictor = QualityPredictor("models/best.pt")
+    
+# Inisialisasi Model (sesuaikan dengan deployment)
+try:
+    detector = FoodDetector("models/best.pt")
+    quality_predictor = QualityPredictor("models/best.pt")
+except:
+    # Fallback untuk environment tanpa akses file
+    detector = None
+    quality_predictor = None
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
