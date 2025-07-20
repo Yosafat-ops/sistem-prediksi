@@ -47,7 +47,7 @@ try:
     from utils.quality_predictor import QualityPredictor
     
     # Gunakan model dari URL atau path yang sesuai dengan Vercel
-    MODEL_URL = os.environ.get('MODEL_URL', 'https://your-model-storage.com/models/best.pt')
+    MODEL_URL = os.environ.get('MODEL_URL', 'https://your-model-storage.com/models/best.onnx')
     detector = FoodDetector(MODEL_URL)
     quality_predictor = QualityPredictor(MODEL_URL)
 except ImportError as e:
