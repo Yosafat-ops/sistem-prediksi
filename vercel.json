@@ -7,7 +7,7 @@
       "config": {
         "runtime": "python@3.9",
         "installCommand": "pip install -r requirements.txt --progress-bar off",
-        "maxLambdaSize": "50mb"
+        "maxLambdaSize": "15mb"
       }
     }
   ],
