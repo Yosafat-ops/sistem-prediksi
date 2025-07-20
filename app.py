@@ -8,15 +8,20 @@ from werkzeug.utils import secure_filename
 import psycopg2
 import base64
 from io import BytesIO
+import logging
+
+# Konfigurasi logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
 # Konfigurasi Vercel
 app.config.update({
-    'UPLOAD_FOLDER': '/tmp/images',  # Gunakan temporary storage di Vercel
+    'UPLOAD_FOLDER': '/tmp/images',
     'ALLOWED_EXTENSIONS': {'png', 'jpg', 'jpeg'},
     'MAX_CONTENT_LENGTH': 16 * 1024 * 1024,
-    'SQLALCHEMY_DATABASE_URI': os.environ.get('DATABASE_URL'),  # Dari environment variable
+    'SQLALCHEMY_DATABASE_URI': os.environ.get('DATABASE_URL'),
     'SQLALCHEMY_TRACK_MODIFICATIONS': False,
     'SECRET_KEY': os.environ.get('SECRET_KEY', 'dev-secret-key')
 })
@@ -35,20 +40,19 @@ class DetectionResult(db.Model):
     quality_score = db.Column(db.Float, nullable=False)
     bbox_coordinates = db.Column(db.String(100), nullable=False)
 
-# Inisialisasi Model dengan lazy loading
-detector = None
-quality_predictor = None
-
-def load_models():
-    global detector, quality_predictor
-    if detector is None or quality_predictor is None:
-        try:
-            from utils.food_detector import FoodDetector
-            from utils.quality_predictor import QualityPredictor
-            detector = FoodDetector("https://your-model-storage.com/models/best.pt")  # Remote model
-            quality_predictor = QualityPredictor("https://your-model-storage.com/models/best.pt")
-        except Exception as e:
-            app.logger.error(f"Failed to load models: {str(e)}")
+# Inisialisasi Model ML
+try:
+    from utils.food_detector import FoodDetector
+    from utils.quality_predictor import QualityPredictor
+    
+    # Gunakan model dari URL atau path yang sesuai dengan Vercel
+    MODEL_URL = os.environ.get('MODEL_URL', 'https://your-model-storage.com/models/best.pt')
+    detector = FoodDetector(MODEL_URL)
+    quality_predictor = QualityPredictor(MODEL_URL)
+except ImportError as e:
+    logger.error(f"Model initialization error: {str(e)}")
+    detector = None
+    quality_predictor = None
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
@@ -65,7 +69,7 @@ def home():
 @app.route('/dashboard')
 def dashboard():
     try:
-        # Data untuk chart (7 hari terakhir)
+        # Data untuk chart
         seven_days_data = db.session.query(
             db.func.date(DetectionResult.detection_time).label('date'),
             db.func.avg(DetectionResult.quality_score).label('avg_quality')
@@ -92,7 +96,8 @@ def dashboard():
                             avg_quality=avg_quality,
                             top_food=top_food)
     except Exception as e:
-        return render_template('error.html', error=str(e)), 500
+        logger.error(f"Dashboard error: {str(e)}")
+        return render_template('error.html', error="Gagal memuat dashboard"), 500
 
 @app.route('/analyze', methods=['GET', 'POST'])
 def analyze():
@@ -102,8 +107,6 @@ def analyze():
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    load_models()  # Pastikan model sudah dimuat
-    
     if detector is None or quality_predictor is None:
         return jsonify({"error": "Model not available"}), 503
 
@@ -118,7 +121,7 @@ def predict():
         if not allowed_file(file.filename):
             return jsonify({"error": "Invalid file type"}), 400
 
-        # Proses gambar di memory
+        # Baca gambar ke memory
         img_bytes = file.read()
         img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
         
@@ -145,7 +148,7 @@ def predict():
                 # Simpan ke database
                 new_result = DetectionResult(
                     filename=secure_filename(file.filename),
-                    image_path='memory',  # Tidak menyimpan gambar di Vercel
+                    image_path='memory',
                     food_name=food["name"],
                     confidence=float(food["confidence"]),
                     quality_score=float(quality),
@@ -162,14 +165,16 @@ def predict():
                 })
                 
             except Exception as e:
-                app.logger.error(f"Error processing food item: {str(e)}")
+                logger.error(f"Error processing food item: {str(e)}")
+                db.session.rollback()
                 continue
 
         if not results:
             return jsonify({"error": "No valid results"}), 400
 
-        # Konversi gambar ke base64 untuk ditampilkan
-        _, buffer = cv2.imencode('.jpg', img)
+        # Gambar hasil dengan bounding box
+        output_img = detector.draw_results(img.copy(), results)
+        _, buffer = cv2.imencode('.jpg', output_img)
         img_base64 = base64.b64encode(buffer).decode('utf-8')
 
         return jsonify({
@@ -178,6 +183,7 @@ def predict():
         })
     except Exception as e:
         db.session.rollback()
+        logger.error(f"Prediction error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/history')
@@ -206,6 +212,7 @@ def history():
                             start_date=start_date,
                             end_date=end_date)
     except Exception as e:
+        logger.error(f"History error: {str(e)}")
         return render_template('error.html', error=str(e)), 500
 
 @app.route('/api/detections', methods=['GET'])
@@ -224,13 +231,14 @@ def api_detections():
             "detection_time": r.detection_time.isoformat()
         } for r in results])
     except Exception as e:
+        logger.error(f"API detections error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/about')
 def about():
     return render_template('about.html')
 
-# Error handler
+# Error handlers
 @app.errorhandler(404)
 def not_found(e):
     return render_template('error.html', error="Page not found"), 404
@@ -239,10 +247,10 @@ def not_found(e):
 def server_error(e):
     return render_template('error.html', error="Server error"), 500
 
-# Inisialisasi untuk Vercel
+# Inisialisasi database
 create_tables()
 
-# Handler khusus Vercel
+# Vercel handler
 def vercel_handler(request):
     with app.app_context():
         response = app.full_dispatch_request()()
@@ -252,6 +260,5 @@ def vercel_handler(request):
         'body': response.get_data().decode('utf-8')
     }
 
-# Untuk development lokal
 if __name__ == '__main__':
     app.run(debug=True)
