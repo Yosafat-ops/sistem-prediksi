@@ -7,11 +7,13 @@
       "config": {
         "runtime": "python@3.9",
         "maxLambdaSize": "300mb",  // Diperbesar untuk model YOLO
+        "externalNodeModules": ["ultralytics"]
         "includeFiles": [
           "models/**",
           "static/**",
           "templates/**",
           "utils/**"
+          "instance/**"
         ]
       }
     },
