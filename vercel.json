@@ -6,13 +6,13 @@
       "use": "@vercel/python",
       "config": {
         "runtime": "python@3.9",
-        "maxLambdaSize": "300mb",  
-        "externalNodeModules": ["ultralytics"]
+        "maxLambdaSize": "300mb",
+        "externalNodeModules": ["ultralytics"],
         "includeFiles": [
           "models/**",
           "static/**",
           "templates/**",
-          "utils/**"
+          "utils/**",
           "instance/**"
         ]
       }
@@ -24,16 +24,12 @@
   ],
   "routes": [
     {
-      "src": "/(.*)",
-      "dest": "app.py"
-    },
-    {
       "src": "/static/(.*)",
       "dest": "/static/$1"
     },
     {
       "src": "/(.*)",
-      "dest": "api/index.py"
+      "dest": "app.py"
     }
   ]
 }
