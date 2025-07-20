@@ -29,8 +29,7 @@
     },
     {
       "src": "/(.*)",
-      "dest": "app.py",
-      "methods": ["GET", "POST"]
+      "dest": "api/index.py"
     }
   ]
 }
