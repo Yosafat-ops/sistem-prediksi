@@ -24,10 +24,7 @@
     "DATABASE_URL": "@your-postgres-url",
     "MODEL_URL": "@your-model-url",
     "SECRET_KEY": "@your-secret-key",
-    "PYTHON_VERSION": "3.9"
+    "PYTHON_VERSION": "3.9",
+    "PIP_ONLY_BINARY": ":all:"
   }
-  "env": {
-  "PYTHON_VERSION": "3.9",
-  "PIP_ONLY_BINARY": ":all:"
-}
 }
