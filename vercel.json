@@ -3,28 +3,18 @@
   "builds": [
     {
       "src": "app.py",
-      "use": "@vercel/python"
-    },
-    {
-      "src": "static/*",
-      "use": "@vercel/static"
+      "use": "@vercel/python",
+      "config": {
+        "runtime": "python@3.9",
+        "installCommand": "pip install -r requirements.txt --progress-bar off",
+        "maxLambdaSize": "50mb"
+      }
     }
   ],
   "routes": [
     {
-      "src": "/static/(.*)",
-      "dest": "static/$1"
-    },
-    {
       "src": "/(.*)",
       "dest": "app.py"
     }
-  ],
-  "env": {
-    "DATABASE_URL": "@your-postgres-url",
-    "MODEL_URL": "@your-model-url",
-    "SECRET_KEY": "@your-secret-key",
-    "PYTHON_VERSION": "3.9",
-    "PIP_ONLY_BINARY": ":all:"
-  }
+  ]
 }
