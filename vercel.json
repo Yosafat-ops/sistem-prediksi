@@ -21,7 +21,8 @@
     }
   ],
   "env": {
-    "DATABASE_URL": "@your-postgres-connection-string",
+    "DATABASE_URL": "@your-postgres-url",
+    "MODEL_URL": "@your-model-url",
     "SECRET_KEY": "@your-secret-key",
     "PYTHON_VERSION": "3.9"
   }
