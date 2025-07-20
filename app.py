@@ -1,28 +1,27 @@
+import os
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 import cv2
 import numpy as np
 from datetime import datetime, timedelta
-import os
 from werkzeug.utils import secure_filename
 import psycopg2
-from jinja2 import TemplateNotFound
-from utils.food_detector import FoodDetector
-from utils.quality_predictor import QualityPredictor
-from flask import request, flash, redirect, url_for
-
+import base64
+from io import BytesIO
 
 app = Flask(__name__)
 
-# Konfigurasi untuk Vercel
+# Konfigurasi Vercel
 app.config.update({
-    'UPLOAD_FOLDER': '/tmp/images',  # Gunakan temporary storage
+    'UPLOAD_FOLDER': '/tmp/images',  # Gunakan temporary storage di Vercel
     'ALLOWED_EXTENSIONS': {'png', 'jpg', 'jpeg'},
     'MAX_CONTENT_LENGTH': 16 * 1024 * 1024,
-    'SQLALCHEMY_DATABASE_URI': os.environ.get('DATABASE_URL'),  # Dari env var
-    'SQLALCHEMY_TRACK_MODIFICATIONS': False
+    'SQLALCHEMY_DATABASE_URI': os.environ.get('DATABASE_URL'),  # Dari environment variable
+    'SQLALCHEMY_TRACK_MODIFICATIONS': False,
+    'SECRET_KEY': os.environ.get('SECRET_KEY', 'dev-secret-key')
 })
 
+# Inisialisasi database
 db = SQLAlchemy(app)
 
 # Model Database
@@ -35,38 +34,47 @@ class DetectionResult(db.Model):
     confidence = db.Column(db.Float, nullable=False)
     quality_score = db.Column(db.Float, nullable=False)
     bbox_coordinates = db.Column(db.String(100), nullable=False)
-    
-# Inisialisasi Model (sesuaikan dengan deployment)
-try:
-    detector = FoodDetector("models/best.pt")
-    quality_predictor = QualityPredictor("models/best.pt")
-except:
-    # Fallback untuk environment tanpa akses file
-    detector = None
-    quality_predictor = None
+
+# Inisialisasi Model dengan lazy loading
+detector = None
+quality_predictor = None
+
+def load_models():
+    global detector, quality_predictor
+    if detector is None or quality_predictor is None:
+        try:
+            from utils.food_detector import FoodDetector
+            from utils.quality_predictor import QualityPredictor
+            detector = FoodDetector("https://your-model-storage.com/models/best.pt")  # Remote model
+            quality_predictor = QualityPredictor("https://your-model-storage.com/models/best.pt")
+        except Exception as e:
+            app.logger.error(f"Failed to load models: {str(e)}")
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
-# Redirect root URL ke dashboard
+def create_tables():
+    with app.app_context():
+        db.create_all()
+
+# Routes
 @app.route('/')
-def root():
+def home():
     return redirect(url_for('dashboard'))
 
 @app.route('/dashboard')
 def dashboard():
     try:
-        # Data untuk chart
+        # Data untuk chart (7 hari terakhir)
         seven_days_data = db.session.query(
-            db.func.strftime('%Y-%m-%d', DetectionResult.detection_time).label('date'),
+            db.func.date(DetectionResult.detection_time).label('date'),
             db.func.avg(DetectionResult.quality_score).label('avg_quality')
         ).filter(DetectionResult.detection_time >= datetime.now() - timedelta(days=7))\
-         .group_by(db.func.strftime('%Y-%m-%d', DetectionResult.detection_time))\
-         .order_by(db.func.strftime('%Y-%m-%d', DetectionResult.detection_time))\
+         .group_by(db.func.date(DetectionResult.detection_time))\
+         .order_by(db.func.date(DetectionResult.detection_time))\
          .all()
 
-        # Extract dates and average qualities
-        dates = [d.date for d in seven_days_data]  # Already formatted as string
+        dates = [d.date.strftime('%Y-%m-%d') for d in seven_days_data]
         avg_qualities = [float(d.avg_quality) if d.avg_quality else 0 for d in seven_days_data]
 
         # Statistik
@@ -84,19 +92,21 @@ def dashboard():
                             avg_quality=avg_quality,
                             top_food=top_food)
     except Exception as e:
-        print(f"Dashboard error: {e}")
-        return render_template('dashboard/error.html', error="Gagal memuat dashboard")
+        return render_template('error.html', error=str(e)), 500
 
-# Analisis Kualitas (Integrasi dengan route yang ada)
 @app.route('/analyze', methods=['GET', 'POST'])
 def analyze():
     if request.method == 'POST':
-        # [Kode yang sama dari route /predict sebelumnya]
-        return render_template('result.html', foods=results, result_image=output_path)
-    return render_template('index.html')
+        return redirect(url_for('predict'))
+    return render_template('analyze.html')
 
 @app.route('/predict', methods=['POST'])
 def predict():
+    load_models()  # Pastikan model sudah dimuat
+    
+    if detector is None or quality_predictor is None:
+        return jsonify({"error": "Model not available"}), 503
+
     try:
         if 'file' not in request.files:
             return jsonify({"error": "No file uploaded"}), 400
@@ -108,26 +118,19 @@ def predict():
         if not allowed_file(file.filename):
             return jsonify({"error": "Invalid file type"}), 400
 
-        # Proses gambar
+        # Proses gambar di memory
         img_bytes = file.read()
         img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
         
         if img is None:
-            return render_template('result.html', error="Format gambar tidak didukung")
+            return jsonify({"error": "Invalid image format"}), 400
 
         # Deteksi makanan
         detected_foods = detector.detect(img)
         if not detected_foods:
-            return render_template('result.html', error="Tidak terdeteksi makanan India!")
+            return jsonify({"error": "No food detected"}), 400
 
         results = []
-        analysis_data = {
-            'total_items': 0,
-            'avg_quality': 0,
-            'quality_distribution': {},
-            'details': []
-        }
-
         for food in detected_foods:
             try:
                 x1, y1, x2, y2 = map(int, food['bbox'])
@@ -136,87 +139,47 @@ def predict():
                 if cropped_img.size == 0:
                     continue
                 
-                # Analisis kualitas
+                # Prediksi kualitas
                 quality = quality_predictor.predict_quality(cropped_img, food["confidence"])
                 
-                # Simpan data untuk analitik
-                analysis_data['total_items'] += 1
-                analysis_data['avg_quality'] += quality
-                analysis_data['details'].append({
-                    'name': food["name"],
-                    'quality': quality,
-                    'confidence': food["confidence"],
-                    'image': f'crop_{len(results)}.jpg'
-                })
-                
-                # Simpan crop gambar untuk analisis detail
-                cv2.imwrite(f'static/images/crop_{len(results)}.jpg', cropped_img)
-
                 # Simpan ke database
                 new_result = DetectionResult(
                     filename=secure_filename(file.filename),
-                    image_path='static/images/result.jpg',
+                    image_path='memory',  # Tidak menyimpan gambar di Vercel
                     food_name=food["name"],
                     confidence=float(food["confidence"]),
                     quality_score=float(quality),
                     bbox_coordinates=f"{x1},{y1},{x2},{y2}"
                 )
                 db.session.add(new_result)
+                db.session.commit()
                 
                 results.append({
                     "name": food["name"],
                     "confidence": float(food["confidence"]),
                     "quality": float(quality),
-                    "bbox": [x1, y1, x2, y2],
-                    "db_id": new_result.id
+                    "bbox": [x1, y1, x2, y2]
                 })
                 
             except Exception as e:
-                print(f"Error processing food item: {e}")
+                app.logger.error(f"Error processing food item: {str(e)}")
                 continue
 
-        # Hitung rata-rata kualitas
-        if analysis_data['total_items'] > 0:
-            analysis_data['avg_quality'] /= analysis_data['total_items']
-        
-        db.session.commit()
-
         if not results:
-            return render_template('result.html', error="Tidak ada hasil valid")
+            return jsonify({"error": "No valid results"}), 400
 
-        try:
-            # Simpan gambar hasil
-            output_path = os.path.join(app.config['UPLOAD_FOLDER'], 'result.jpg')
-            annotated_img = detector.draw_results(img.copy(), results)
-            cv2.imwrite(output_path, annotated_img)
-            
-            # Update database
-            for result in results:
-                if 'db_id' in result:
-                    record = DetectionResult.query.get(result['db_id'])
-                    if record:
-                        record.image_path = output_path
-            db.session.commit()
-            
-            # Render hasil dengan data analitik
-            return render_template('result.html', 
-                                foods=results, 
-                                result_image=output_path,
-                                analysis=analysis_data)
-                
-        except Exception as e:
-            print(f"Error saving image: {e}")
-            return render_template('result.html', 
-                                foods=results, 
-                                error="Gagal menyimpan gambar")
+        # Konversi gambar ke base64 untuk ditampilkan
+        _, buffer = cv2.imencode('.jpg', img)
+        img_base64 = base64.b64encode(buffer).decode('utf-8')
 
+        return jsonify({
+            "results": results,
+            "image": img_base64
+        })
     except Exception as e:
         db.session.rollback()
-        print(f"Unexpected error: {e}")
-        return render_template('result.html', 
-                            error=f"Terjadi kesalahan: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
-# History (Integrasi dengan route yang ada)
 @app.route('/history')
 def history():
     try:
@@ -235,7 +198,7 @@ def history():
         if end_date:
             query = query.filter(DetectionResult.detection_time <= end_date)
         
-        results = query.order_by(DetectionResult.detection_time.desc()).all()
+        results = query.order_by(DetectionResult.detection_time.desc()).limit(50).all()
         
         return render_template('history.html', 
                             results=results,
@@ -243,70 +206,52 @@ def history():
                             start_date=start_date,
                             end_date=end_date)
     except Exception as e:
-        return render_template('error.html', error="Gagal memuat history")
+        return render_template('error.html', error=str(e)), 500
 
-@app.route('/delete/<int:id>', methods=['DELETE'])
-def delete_result(id):
+@app.route('/api/detections', methods=['GET'])
+def api_detections():
     try:
-        # Cari dan hapus record dari database
-        result = DetectionResult.query.get_or_404(id)
+        limit = request.args.get('limit', default=10, type=int)
+        results = DetectionResult.query.order_by(
+            DetectionResult.detection_time.desc()
+        ).limit(limit).all()
         
-        # Hapus file gambar jika ada
-        if result.image_path:
-            try:
-                os.remove(os.path.join(app.config['UPLOAD_FOLDER'], result.image_path))
-            except Exception as e:
-                app.logger.error(f"Gagal menghapus file gambar: {str(e)}")
-        
-        db.session.delete(result)
-        db.session.commit()
-        
-        return jsonify({"success": True, "message": "Data berhasil dihapus"})
-    
+        return jsonify([{
+            "id": r.id,
+            "food_name": r.food_name,
+            "confidence": r.confidence,
+            "quality_score": r.quality_score,
+            "detection_time": r.detection_time.isoformat()
+        } for r in results])
     except Exception as e:
-        db.session.rollback()
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
-# Profil Perusahaan
 @app.route('/about')
 def about():
     return render_template('about.html')
 
-# [Tambahkan route lainnya yang sudah ada...]
+# Error handler
+@app.errorhandler(404)
+def not_found(e):
+    return render_template('error.html', error="Page not found"), 404
 
-if __name__ == '__main__':
+@app.errorhandler(500)
+def server_error(e):
+    return render_template('error.html', error="Server error"), 500
+
+# Inisialisasi untuk Vercel
+create_tables()
+
+# Handler khusus Vercel
+def vercel_handler(request):
     with app.app_context():
-        db.create_all()
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    app.run(debug=True)
+        response = app.full_dispatch_request()()
+    return {
+        'statusCode': response.status_code,
+        'headers': dict(response.headers),
+        'body': response.get_data().decode('utf-8')
+    }
 
-# API Endpoints
-@app.route('/api/dashboard/quality-trend')
-def quality_trend_api():
-    try:
-        days = request.args.get('days', default=30, type=int)
-        
-        trend_data = (
-            db.session.query(
-                db.func.date(DetectionResult.detection_time).label('date'),
-                db.func.avg(DetectionResult.quality_score).label('avg_quality')
-            )
-            .filter(DetectionResult.detection_time >= datetime.now() - timedelta(days=days))
-            .group_by('date')
-            .order_by('date')
-            .all()
-        )
-        
-        return jsonify([{
-            'date': d.date.strftime('%Y-%m-%d'),
-            'quality': float(d.avg_quality) if d.avg_quality else 0
-        } for d in trend_data])
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# Main Application Entry
+# Untuk development lokal
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     app.run(debug=True)
