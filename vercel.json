@@ -24,6 +24,10 @@
   ],
   "routes": [
     {
+      "src": "/(.*)",
+      "dest": "app.py"
+    },
+    {
       "src": "/static/(.*)",
       "dest": "/static/$1"
     },
