@@ -26,4 +26,8 @@
     "SECRET_KEY": "@your-secret-key",
     "PYTHON_VERSION": "3.9"
   }
+  "env": {
+  "PYTHON_VERSION": "3.9",
+  "PIP_ONLY_BINARY": ":all:"
+}
 }
