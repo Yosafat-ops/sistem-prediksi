@@ -6,7 +6,7 @@
       "use": "@vercel/python",
       "config": {
         "runtime": "python@3.9",
-        "maxLambdaSize": "300mb",  // Diperbesar untuk model YOLO
+        "maxLambdaSize": "300mb",  
         "externalNodeModules": ["ultralytics"]
         "includeFiles": [
           "models/**",
