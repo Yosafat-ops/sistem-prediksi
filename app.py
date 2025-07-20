@@ -5,19 +5,18 @@ import cv2
 import numpy as np
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
-import psycopg2
 import base64
 from io import BytesIO
 import logging
+from typing import Dict, List, Any, Optional
 
 # Konfigurasi logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
 
 app = Flask(__name__)
 
-# Konfigurasi Vercel
+# Konfigurasi aplikasi
 app.config.update({
     'UPLOAD_FOLDER': '/tmp/images',
     'ALLOWED_EXTENSIONS': {'png', 'jpg', 'jpeg'},
@@ -32,39 +31,73 @@ db = SQLAlchemy(app)
 
 # Model Database
 class DetectionResult(db.Model):
+    __tablename__ = 'detection_results'
     id = db.Column(db.Integer, primary_key=True)
     filename = db.Column(db.String(100), nullable=False)
     image_path = db.Column(db.String(200), nullable=False)
-    detection_time = db.Column(db.DateTime, default=datetime.utcnow)
-    food_name = db.Column(db.String(50), nullable=False)
+    detection_time = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    food_name = db.Column(db.String(50), nullable=False, index=True)
     confidence = db.Column(db.Float, nullable=False)
     quality_score = db.Column(db.Float, nullable=False)
     bbox_coordinates = db.Column(db.String(100), nullable=False)
 
 # Inisialisasi Model ML
-try:
-    from utils.food_detector import FoodDetector
-    from utils.quality_predictor import QualityPredictor
-    
-    # Gunakan model dari URL atau path yang sesuai dengan Vercel
-    MODEL_URL = os.environ.get('MODEL_URL', 'https://your-model-storage.com/models/best.onnx')
-    detector = FoodDetector(MODEL_URL)
-    quality_predictor = QualityPredictor(MODEL_URL)
-except ImportError as e:
-    logger.error(f"Model initialization error: {str(e)}")
-    detector = None
-    quality_predictor = None
+MODEL_DIR = "models"
+os.makedirs(MODEL_DIR, exist_ok=True)
 
-def allowed_file(filename):
+def initialize_models() -> bool:
+    """Initialize ML models with proper error handling"""
+    try:
+        from utils.food_detector import FoodDetector
+        from utils.quality_predictor import QualityPredictor
+        
+        MODEL_URL = os.environ.get('MODEL_URL')
+        LOCAL_MODEL_PATH = os.path.join(MODEL_DIR, "best.onnx")
+        
+        if MODEL_URL and not os.path.exists(LOCAL_MODEL_PATH):
+            logger.info(f"Downloading model from {MODEL_URL}")
+            import requests
+            response = requests.get(MODEL_URL, stream=True)
+            response.raise_for_status()
+            with open(LOCAL_MODEL_PATH, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            logger.info("Model downloaded successfully")
+        
+        if not os.path.exists(LOCAL_MODEL_PATH):
+            logger.error("Model file not found")
+            return False
+            
+        global detector, quality_predictor
+        detector = FoodDetector(LOCAL_MODEL_PATH, device='cpu')
+        quality_predictor = QualityPredictor(LOCAL_MODEL_PATH, device='cpu')
+        return True
+        
+    except Exception as e:
+        logger.error(f"Model initialization failed: {str(e)}")
+        return False
+
+# Global model instances
+detector = None
+quality_predictor = None
+if not initialize_models():
+    logger.warning("Running in degraded mode without ML models")
+
+def allowed_file(filename: str) -> bool:
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 def create_tables():
+    """Initialize database tables"""
     with app.app_context():
-        db.create_all()
+        try:
+            db.create_all()
+            logger.info("Database tables created")
+        except Exception as e:
+            logger.error(f"Database initialization failed: {str(e)}")
+            raise
 
-# Routes
 @app.route('/')
-def home():
+def home() -> str:
     return redirect(url_for('dashboard'))
 
 @app.route('/dashboard')
@@ -122,7 +155,7 @@ def predict():
         if not allowed_file(file.filename):
             return jsonify({"error": "Invalid file type"}), 400
 
-        # Baca gambar ke memory
+        # Baca gambar
         img_bytes = file.read()
         img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
         
@@ -251,15 +284,5 @@ def server_error(e):
 # Inisialisasi database
 create_tables()
 
-# Vercel handler
-def vercel_handler(request):
-    with app.app_context():
-        response = app.full_dispatch_request()()
-    return {
-        'statusCode': response.status_code,
-        'headers': dict(response.headers),
-        'body': response.get_data().decode('utf-8')
-    }
-
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8000)), debug=False)
